@@ -10,7 +10,8 @@ export function useCurrentTab() {
       setTab(activeTab);
       if (activeTab?.url) {
         try {
-          setDomain(new URL(activeTab.url).hostname);
+          const url = new URL(activeTab.url);
+          setDomain(["https:", "http:"].includes(url.protocol) ? url.hostname : "");
         } catch {
           setDomain("");
         }

@@ -9,4 +9,13 @@ export interface Session {
   savedAt: string;
   lastUsedAt: string | null;
   cookieCount: number;
+  storeId?: string;
+  automatic?: boolean;
+  authStorage?: AuthStorage;
+}
+
+export interface AuthStorage {
+  origin: string;
+  local: Record<string, string | null>;
+  session: Record<string, string | null>;
 }

@@ -73,3 +73,9 @@ export async function importSessions(
     payload: { sessions },
   });
 }
+
+export async function anonymousAction(type: "ACTIVATE_ANONYMOUS" | "ANONYMOUS_STATUS" | "RECOVER_SWITCH" | "SAVE_ADAPTER", tabId: number, adapter?: unknown) {
+  const response = await sendMessage<import("../types/auth").AnonymousStatus>({ type, payload: { tabId, adapter } });
+  if (!response.success) throw new Error(response.error ?? "Session operation failed.");
+  return response.data;
+}

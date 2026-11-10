@@ -1,6 +1,10 @@
 import type { Session } from "../types/session";
 
 export type MessageType =
+  | "ACTIVATE_ANONYMOUS"
+  | "ANONYMOUS_STATUS"
+  | "SAVE_ADAPTER"
+  | "RECOVER_SWITCH"
   | "CAPTURE_SESSION"
   | "RESTORE_SESSION"
   | "DELETE_SESSION"

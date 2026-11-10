@@ -50,7 +50,7 @@ function validateCookie(c: unknown, idx: number, sIdx: number): string[] {
     errors.push(`${prefix}.httpOnly: must be a boolean`);
   if (
     typeof cookie.sameSite !== "string" ||
-    !(cookie.sameSite in VALID_SAME_SITE)
+    !Object.hasOwn(VALID_SAME_SITE, cookie.sameSite)
   )
     errors.push(
       `${prefix}.sameSite: must be one of ${Object.keys(VALID_SAME_SITE).join(", ")}`,
@@ -61,6 +61,13 @@ function validateCookie(c: unknown, idx: number, sIdx: number): string[] {
   )
     errors.push(`${prefix}.expirationDate: must be a number if present`);
 
+  if (cookie.hostOnly !== undefined && typeof cookie.hostOnly !== "boolean") errors.push(`${prefix}.hostOnly: invalid`);
+  if (cookie.storeId !== undefined && typeof cookie.storeId !== "string") errors.push(`${prefix}.storeId: invalid`);
+  if (cookie.partitionKey !== undefined) {
+    const pk = cookie.partitionKey as Record<string, unknown>;
+    if (!pk || typeof pk.topLevelSite !== "string" ||
+      (pk.hasCrossSiteAncestor !== undefined && typeof pk.hasCrossSiteAncestor !== "boolean")) errors.push(`${prefix}.partitionKey: invalid`);
+  }
   return errors;
 }
 
@@ -88,6 +95,14 @@ function validateSession(s: unknown, idx: number): string[] {
   if (typeof session.cookieCount !== "number")
     errors.push(`${prefix}.cookieCount: must be a number`);
 
+  if (session.storeId !== undefined && typeof session.storeId !== "string") errors.push(`${prefix}.storeId: invalid`);
+  if (session.automatic !== undefined && typeof session.automatic !== "boolean") errors.push(`${prefix}.automatic: invalid`);
+  if (session.authStorage !== undefined) {
+    const a = session.authStorage as Record<string, unknown>;
+    if (!a || typeof a.origin !== "string" || ![a.local, a.session].every(v =>
+      v && typeof v === "object" && !Array.isArray(v) && Object.values(v).every(x => x === null || typeof x === "string")))
+      errors.push(`${prefix}.authStorage: invalid`);
+  }
   if (!Array.isArray(session.cookies)) {
     errors.push(`${prefix}.cookies: must be an array`);
   } else {

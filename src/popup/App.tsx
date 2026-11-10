@@ -1,3 +1,4 @@
+import { AnonymousSession } from "./AnonymousSession";
 import { useState } from "react";
 import { useSessions } from "./hooks/useSessions";
 import { useCurrentTab } from "./hooks/useCurrentTab";
@@ -37,6 +38,8 @@ export function App() {
             sessions={sessions}
             onImportReady={(incoming) => setImportPreview(incoming)}
           />
+
+          <AnonymousSession revision={sessions} tabId={tabId} domain={domain} onUpdate={refresh} />
 
           {loading ? (
             <div className="loading">Loading sessions…</div>

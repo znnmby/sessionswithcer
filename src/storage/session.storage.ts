@@ -1,6 +1,12 @@
 import type { Session } from "../types/session";
 
 const STORAGE_KEY = "sessions";
+let writes: Promise<unknown> = Promise.resolve();
+function serialize<T>(action: () => Promise<T>): Promise<T> {
+  const next = writes.then(action, action);
+  writes = next.catch(() => {});
+  return next;
+}
 
 /**
  * Get all stored sessions.
@@ -24,18 +30,22 @@ export async function getSessionsByDomain(
  * Save a new session (appends to the array).
  */
 export async function saveSession(session: Session): Promise<void> {
-  const sessions = await getAllSessions();
-  sessions.push(session);
-  await chrome.storage.local.set({ [STORAGE_KEY]: sessions });
+  return serialize(async () => {
+    const sessions = await getAllSessions();
+    sessions.push(session);
+    await chrome.storage.local.set({ [STORAGE_KEY]: sessions });
+  });
 }
 
 /**
  * Delete a session by its ID.
  */
 export async function deleteSession(sessionId: string): Promise<void> {
-  const sessions = await getAllSessions();
-  const filtered = sessions.filter((s) => s.id !== sessionId);
-  await chrome.storage.local.set({ [STORAGE_KEY]: filtered });
+  return serialize(async () => {
+    const sessions = await getAllSessions();
+    const filtered = sessions.filter((s) => s.id !== sessionId);
+    await chrome.storage.local.set({ [STORAGE_KEY]: filtered });
+  });
 }
 
 /**
@@ -45,11 +55,13 @@ export async function updateSession(
   sessionId: string,
   updates: Partial<Session>,
 ): Promise<void> {
-  const sessions = await getAllSessions();
-  const idx = sessions.findIndex((s) => s.id === sessionId);
-  if (idx === -1) throw new Error(`Session ${sessionId} not found`);
-  sessions[idx] = { ...sessions[idx], ...updates };
-  await chrome.storage.local.set({ [STORAGE_KEY]: sessions });
+  return serialize(async () => {
+    const sessions = await getAllSessions();
+    const idx = sessions.findIndex((s) => s.id === sessionId);
+    if (idx === -1) throw new Error(`Session ${sessionId} not found`);
+    sessions[idx] = { ...sessions[idx], ...updates };
+    await chrome.storage.local.set({ [STORAGE_KEY]: sessions });
+  });
 }
 
 /**
@@ -67,22 +79,24 @@ export async function getSession(sessionId: string): Promise<Session | null> {
 export async function bulkImportSessions(
   incoming: Session[],
 ): Promise<{ imported: number; skipped: number }> {
-  const existing = await getAllSessions();
-  const existingIds = new Set(existing.map((s) => s.id));
+  return serialize(async () => {
+    const existing = await getAllSessions();
+    const existingIds = new Set(existing.map((s) => s.id));
 
-  let imported = 0;
-  let skipped = 0;
+    let imported = 0;
+    let skipped = 0;
 
-  for (const session of incoming) {
-    if (existingIds.has(session.id)) {
-      skipped++;
-    } else {
-      existing.push(session);
-      existingIds.add(session.id);
-      imported++;
+    for (const session of incoming) {
+      if (existingIds.has(session.id)) {
+        skipped++;
+      } else {
+        existing.push(session);
+        existingIds.add(session.id);
+        imported++;
+      }
     }
-  }
 
-  await chrome.storage.local.set({ [STORAGE_KEY]: existing });
-  return { imported, skipped };
+    await chrome.storage.local.set({ [STORAGE_KEY]: existing });
+    return { imported, skipped };
+  });
 }

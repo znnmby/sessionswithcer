@@ -25,6 +25,7 @@ export function SessionCard({
   onUpdate,
   onRequestConfirm,
 }: Props) {
+  const [error, setError] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [newLabel, setNewLabel] = useState(session.label);
   const [busy, setBusy] = useState<string | null>(null);
@@ -32,7 +33,12 @@ export function SessionCard({
   async function handleSwitch() {
     setBusy("switch");
     try {
-      await restoreSession(session.id, tabId);
+      setError("");
+      const response = await restoreSession(session.id, tabId);
+      if (!response.success) throw new Error(response.error ?? "Switch failed");
+      onUpdate();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Operation failed");
       onUpdate();
     } finally {
       setBusy(null);
@@ -45,8 +51,11 @@ export function SessionCard({
       async () => {
         setBusy("delete");
         try {
-          await deleteSession(session.id);
+          const response = await deleteSession(session.id);
+          if (!response.success) throw new Error(response.error ?? "Delete failed");
           onUpdate();
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Operation failed");
         } finally {
           setBusy(null);
         }
@@ -57,8 +66,12 @@ export function SessionCard({
   async function handleRecapture() {
     setBusy("recapture");
     try {
-      await recaptureSession(session.id, tabId);
+      setError("");
+      const response = await recaptureSession(session.id, tabId);
+      if (!response.success) throw new Error(response.error ?? "Update failed");
       onUpdate();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Operation failed");
     } finally {
       setBusy(null);
     }
@@ -73,9 +86,12 @@ export function SessionCard({
     }
     setBusy("rename");
     try {
-      await updateLabel(session.id, trimmed);
+      const response = await updateLabel(session.id, trimmed);
+      if (!response.success) throw new Error(response.error ?? "Rename failed");
       setRenaming(false);
       onUpdate();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Operation failed");
     } finally {
       setBusy(null);
     }
@@ -112,9 +128,10 @@ export function SessionCard({
         ) : (
           <span className="session-label">{session.label}</span>
         )}
-        <span className="cookie-count">{session.cookieCount} cookies</span>
+        <span className="cookie-count">{session.automatic ? "Recovery · " : ""}{session.cookieCount} cookies</span>
       </div>
 
+      {error && <div className="error-text" role="alert">{error}</div>}
       <div className="session-meta">
         <span>Saved: {savedDate}</span>
         <span>Last used: {lastUsed}</span>
@@ -131,7 +148,7 @@ export function SessionCard({
         <button
           className="btn btn-secondary btn-sm"
           onClick={handleRecapture}
-          disabled={busy !== null}
+          disabled={busy !== null || session.automatic}
         >
           {busy === "recapture" ? "Updating…" : "Update"}
         </button>

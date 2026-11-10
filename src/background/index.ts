@@ -1,3 +1,6 @@
+import { validateExportFile, buildExportFile } from "../services/export-import.service";
+import { activateAnonymous, getAnonymousStatus, recoverSwitch } from "../services/session.service";
+import { saveAdapter } from "../services/auth-adapter.service";
 import type {
   ExtensionMessage,
   ExtensionResponse,
@@ -29,6 +32,22 @@ chrome.runtime.onMessage.addListener(
     (async () => {
       try {
         switch (message.type) {
+          case "ACTIVATE_ANONYMOUS":
+          case "ANONYMOUS_STATUS":
+          case "RECOVER_SWITCH":
+          case "SAVE_ADAPTER": {
+            const { tabId, adapter } = message.payload as { tabId: number; adapter?: unknown };
+            if (message.type === "SAVE_ADAPTER") {
+              const tab = await chrome.tabs.get(tabId);
+              const url = new URL(tab.url ?? "");
+              if (!["http:", "https:"].includes(url.protocol)) throw new Error("Open a website first.");
+              await saveAdapter(url.hostname, adapter);
+            }
+            if (message.type === "RECOVER_SWITCH") await recoverSwitch(tabId);
+            const data = message.type === "ACTIVATE_ANONYMOUS" ? await activateAnonymous(tabId) : await getAnonymousStatus(tabId);
+            sendResponse({ success: true, data });
+            break;
+          }
           case "CAPTURE_SESSION": {
             const { label, tabId } = message.payload as CapturePayload;
             const session = await captureSession(label, tabId);
@@ -67,6 +86,7 @@ chrome.runtime.onMessage.addListener(
           }
           case "IMPORT_SESSIONS": {
             const { sessions } = message.payload as ImportSessionsPayload;
+            if (!validateExportFile(buildExportFile(sessions)).valid) throw new Error("Invalid imported sessions.");
             const result = await bulkImportSessions(sessions);
             sendResponse({ success: true, data: result });
             break;

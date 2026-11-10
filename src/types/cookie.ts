@@ -5,7 +5,9 @@ export interface SavedCookie {
   path: string;
   secure: boolean;
   httpOnly: boolean;
-  sameSite: chrome.cookies.SameSiteStatus;
+  sameSite: "unspecified" | "no_restriction" | "lax" | "strict";
   expirationDate?: number;
   storeId?: string;
+  hostOnly?: boolean;
+  partitionKey?: chrome.cookies.CookiePartitionKey;
 }
