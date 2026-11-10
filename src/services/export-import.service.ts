@@ -96,13 +96,6 @@ function validateSession(s: unknown, idx: number): string[] {
     errors.push(`${prefix}.cookieCount: must be a number`);
 
   if (session.storeId !== undefined && typeof session.storeId !== "string") errors.push(`${prefix}.storeId: invalid`);
-  if (session.automatic !== undefined && typeof session.automatic !== "boolean") errors.push(`${prefix}.automatic: invalid`);
-  if (session.authStorage !== undefined) {
-    const a = session.authStorage as Record<string, unknown>;
-    if (!a || typeof a.origin !== "string" || ![a.local, a.session].every(v =>
-      v && typeof v === "object" && !Array.isArray(v) && Object.values(v).every(x => x === null || typeof x === "string")))
-      errors.push(`${prefix}.authStorage: invalid`);
-  }
   if (!Array.isArray(session.cookies)) {
     errors.push(`${prefix}.cookies: must be an array`);
   } else {

@@ -152,9 +152,9 @@ tidak sesuai skema ditolak dengan daftar error.
 
 ## Batasan yang Diketahui
 
-- Secara default hanya cookie disimpan. Adapter Anonymous dapat menyimpan key
-  autentikasi localStorage/sessionStorage yang dipilih; IndexedDB belum didukung.
-- Cookie partitioned top frame didukung pada API yang sesuai; lihat batasan Anonymous di bawah.
+- Hanya cookie yang disimpan. localStorage, sessionStorage, dan IndexedDB tidak
+  ikut dipindahkan.
+- Cookie partitioned top frame didukung bila browser menyediakan API partition key.
 - Profil incognito memiliki penyimpanan cookie terpisah.
 - Cookie yang sudah kedaluwarsa tetap dapat diimpor, tetapi situs akan menolaknya.
 - Popup hanya aktif pada tab `http(s)`. Pada `chrome://`, halaman baru, atau Chrome
@@ -213,142 +213,51 @@ Pastikan file memiliki `format: "session-switcher-export"`, `version: 1`, dan ar
   menambahkan keduanya ke `.gitignore`.
 - Ikon di `public/icons/` sebenarnya data JPEG berukuran 1024×1024 dengan ekstensi
   `.png`; ketiganya identik. Sebaiknya diganti PNG asli berukuran 16/48/128 px.
-## Automatic Anonymous Session
+## Pengujian
 
-Anonymous adalah profil virtual, bukan snapshot cookie akun. Di website yang memiliki
-adapter, pilih **Use Anonymous** pada kartu Anonymous. Tidak perlu profile browser
-lain, logout, atau capture cookie anonim. Tidak ada request bootstrap/logout/revoke
-atau pengiriman token oleh extension. Reload website tetap dapat membuat request
-normal; kebijakan rotasi/invalidation server berada di luar kendali extension.
+Jalankan `npm run typecheck`, `npm test`, dan `npm run build`. Pengujian Node
+menggunakan mock API Chrome dan membutuhkan Node 24 untuk loader TypeScript.
+Switching hanya memindahkan cookie pada host/store/partition target; dukungan
+login tetap bergantung pada mekanisme autentikasi website. Tidak ada akses storage
+website melalui scripting.
 
-### Mengaktifkan dukungan website
+Saat extension dimuat ulang, migrasi membersihkan data profil otomatis dan
+konfigurasi fitur lama yang telah dihapus. Sesi yang disimpan manual dipertahankan.
 
-Tidak ada adapter produksi bawaan yang diklaim aman untuk semua website. Klik
-**Configure website** dan masukkan konfigurasi berdasarkan mekanisme autentikasi
-website yang sudah ditinjau. Contoh berikut hanya contoh skema, bukan adapter
-universal yang boleh langsung dipakai di website lain:
+## New Session
 
-```json
-{
-  "domain": "app.example.test",
-  "cookies": [
-    { "name": "sid", "domain": ".example.test" },
-    { "name": "__Host-auth", "domain": "app.example.test", "path": "/" }
-  ],
-  "localKeys": ["access_token"],
-  "sessionKeys": ["auth_nonce"],
-  "verification": {
-    "authenticated": "[data-account]",
-    "anonymous": "[data-anonymous]"
-  }
-}
-```
+Tombol **NEW** menyimpan cookie situs aktif sebagai sesi biasa sebelum mengosongkan
+cookie lokal dan me-reload tab. Tidak ada request logout/revoke, profil browser
+lain, atau pemisahan cookie antar-tab. Tidak ada profil Recovery yang dibuat.
 
-- Domain adapter harus persis hostname tab aktif. Rule cookie boleh menunjuk host
-  tersebut atau parent domain yang memang mengirim cookie ke host itu. Cookie
-  host-only dan domain dibedakan saat pemulihan; `path` opsional pada rule berarti
-  semua path untuk nama/domain tersebut. Sertakan seluruh cookie auth/CSRF terkait
-  yang perlu diisolasi; jangan masukkan preferensi atau draft.
-- `localKeys` dan `sessionKeys` adalah daftar key autentikasi yang tepat, bukan pola
-  atau perintah clear. Jika tidak diperlukan, gunakan array kosong. Hanya top frame
-  dan origin aktif yang dibaca/ditulis. Tidak ada clear massal storage.
-- Verifier adalah dua selector CSS yang saling eksklusif pada halaman yang telah
-  selesai reload. Keberadaan elemen membuktikan status login menurut adapter, belum
-  membuktikan identitas akun tertentu. SPA yang terlambat render dapat menghasilkan
-  kegagalan verifikasi dan rollback. Pilih indikator yang stabil pada halaman itu.
-- Verifier opsional. Tanpanya hasil selalu diberi label **Unverified**; UI tidak
-  menyatakan bahwa website sudah menerima sesi atau benar-benar anonim.
-- Adapter salah/tidak lengkap dapat meninggalkan autentikasi aktif atau menghapus
-  data yang keliru. Website tanpa adapter ditandai unsupported; tidak ada heuristic
-  otomatis berdasarkan nama cookie. Konfigurasi cukup dilakukan sekali per host.
+1. Saat akun A aktif, isi label A (opsional), lalu klik **NEW**. Tanpa label,
+   snapshot yang identik dipakai kembali bila ada; selain itu nama dibuat dari
+   domain dan waktu. Snapshot lama tidak ditimpa.
+2. Cookie situs yang berlaku pada host/store/partition aktif dikosongkan. Cookie
+   preferensi juga ikut disimpan dan dikosongkan. Parent-domain cookie dapat
+   memengaruhi subdomain lain yang memang berbagi cookie tersebut.
+3. Login ke akun B pada situs. Jika perlu, buka halaman login situs secara manual.
+   Extension tidak menentukan URL login dan tidak mengklaim verifikasi logout.
+4. Buka popup, beri label B dan klik **SAVE**. B disimpan lewat tindakan pengguna;
+   extension tidak menebak kapan login selesai. Gunakan **Switch** untuk A/B.
 
-### Alur dan perlindungan snapshot
+Status New tetap tersedia setelah popup ditutup. Save atau Switch mengakhiri
+status tersebut. New berikutnya diblokir sampai salah satu tindakan itu dilakukan.
+Jika proses terputus, sesi A sudah disimpan sebelum perubahan cookie; pilih Switch
+pada sesi itu untuk kembali. Snapshot/account tidak otomatis dihapus saat New gagal.
 
-`AnonymousSession / SessionCard → runtime message → background router →
- session.service → auth-adapter.service + cookie.service → chrome APIs → reload →
- verification → status UI`.
+New dan Switch memakai lock yang sama serta pemulihan cookie sebelumnya jika
+mutasi gagal dalam proses yang masih berjalan. Snapshot harus berhasil ditulis
+sebelum penghapusan cookie dimulai; kegagalan penyimpanan menghentikan proses.
+New tidak membuat snapshot tambahan jika tidak ada cookie situs untuk disimpan.
 
-Sebelum perubahan pertama, service mengunci operasi dan memvalidasi origin, store,
-partition, scope cookie, serta expiration. Snapshot kondisi saat ini ditambahkan
-sebagai sesi **Recovery** baru jika terdapat data auth. Snapshot akun lama tidak
-ditimpa; snapshot Recovery tidak dapat di-Update. Ini juga menangkap cookie yang
-sudah dirotasi server tanpa mengubah akun A/B yang pernah disimpan. Bila snapshot
-akun lama sudah tidak valid, pilih Recovery terbaru yang sesuai, bukan snapshot
-lama. Snapshot tetap dapat diekspor/dihapus secara eksplisit oleh pengguna.
+Batasan: hanya cookie yang diisolasi melalui swapping. localStorage,
+sessionStorage, IndexedDB, in-memory token, dan SSO identity provider tidak dihapus
+atau dipindahkan. Website dapat tetap login otomatis atau membatalkan sesi A saat B
+login sesuai kebijakan server. Tab situs yang sama dalam profil browser yang sama
+berbagi cookie; gunakan fitur ini untuk berpindah akun, bukan memakai dua akun
+bersamaan secara independen. Tidak ada permission baru.
 
-Journal `switchJournal` disimpan sebelum mutasi. Anonymous hanya menghapus cookie
-yang cocok dengan rule dan key storage yang tercantum. Berpindah ke akun dengan
-adapter menggunakan jalur transaksi yang sama untuk membersihkan auth yang
-bertentangan lalu memulihkan auth target. Cookie preferensi saat ini dipertahankan.
-Tidak ada cookie akun lain yang dipakai untuk profil Anonymous.
-
-Sesudah reload selesai, verifier dijalankan bila tersedia. Kegagalan menyebabkan
-upaya rollback cookie dan storage sebelumnya, lalu reload. Bila rollback gagal atau
-service worker terputus, journal tetap tersedia dan switching baru diblokir. Kembali
-ke origin/store semula dan pilih **Recover interrupted switch**. Pemulihan lokal
-tidak menjamin server masih menerima sesi. Jika tab sudah ditutup, buka kembali origin yang sama di store yang sama dan pilih
-Recover; key sessionStorage dari tab lama akan diterapkan ke tab pemulihan tersebut.
-Jangan menutup tab selama switching/recovery.
-
-Operasi capture/recapture/switch diserialkan oleh lock service worker, dan mutasi
-array sesi diserialkan agar penulisan bersamaan tidak menghilangkan snapshot.
-Lock switching sengaja global (lebih konservatif daripada lock per domain), karena
-cookie parent domain dapat dibagi beberapa subdomain. Journal juga mencegah
-switching baru setelah restart worker. Browser/website masih dapat menulis cookie
-dan storage di tab lain; lock ini bukan isolasi proses website. Tutup tab lain pada
-website yang sama untuk menghindari penulisan token bersamaan.
-
-### Kompatibilitas dan batasan
-
-- Menambahkan permission `scripting` untuk akses key storage terpilih dan verifier
-  DOM. Host permissions tidak diperluas. Reload extension setelah build dan setujui
-  perubahan permission browser bila diminta.
-- Switching dengan adapter memerlukan Chromium dengan `cookies.getPartitionKey`
-  (Chrome 132+). Cookie unpartitioned dan partition top frame aktif dibaca terpisah;
-  store, partition, domain, path, host-only, secure, HttpOnly, SameSite, dan expiration
-  dipertahankan. Partition/store yang berbeda tidak dipindahkan secara otomatis.
-  Identitas penghapusan diperiksa sebelum dan sesudah operasi; konflik ambigu
-  menghasilkan error/recovery, bukan penghapusan cookie lain secara diam-diam.
-  Rujukan: [Chrome Cookies API](https://developer.chrome.com/docs/extensions/reference/api/cookies).
-- Snapshot v1 lama tetap dapat diimpor tanpa migrasi. `hostOnly` yang dahulu tidak
-  disimpan diinferensikan dari leading dot domain; informasi historis yang hilang
-  tidak dapat dijamin pulih. Jika adapter memerlukan storage, snapshot lama harus
-  di-Update saat login sebelum digunakan. Snapshot dengan cookie di luar scope,
-  store lain, atau expiration auth yang sudah lewat ditolak sebelum mutasi.
-- Tanpa adapter, fitur switching akun cookie-only lama tetap tersedia (unverified)
-  dan membersihkan cookie yang berlaku untuk host target. Anonymous tetap disabled.
-- IndexedDB, cache/service worker website, auth dalam memori JS, iframe lintas
-  origin, sibling host/identity provider SSO, HTTP auth, passkey/refresh flow khusus,
-  serta bootstrap sesi anonim terisolasi belum didukung. Data tersebut tidak dihapus.
-  Automatic SSO dapat langsung login kembali setelah reload; verifier harus dapat
-  mendeteksinya. Extension tidak menjamin anonimitas jaringan atau anti-tracking.
-- Data tetap plaintext di `chrome.storage.local`; export dan Recovery mengandung
-  kredensial. Recovery bersifat append-only dan dapat menambah penggunaan kuota.
-  Jika penyimpanan snapshot/journal gagal, mutasi auth belum dimulai. Hapus snapshot
-  Recovery lama secara eksplisit bila sudah tidak diperlukan.
-- Indikator mode disimpan per tab/origin/store dan diperiksa ulang melalui verifier
-  saat popup dibuka/daftar sesi diperbarui. Tanpa verifier indikator hanya pilihan
-  terakhir, bukan bukti status login, khususnya setelah perubahan dari tab lain.
-
-### Pengujian fitur
-
-```bash
-npm run typecheck
-npm test
-npm run build
-```
-
-Test Node memakai loader TypeScript bawaan Node 24 dan mock Chrome APIs. Mock
-menjalankan fungsi injeksi storage/verifier yang sama, lalu mensimulasikan cookie
-jar, store, partition, reload dan state halaman. `tests/session.test.mjs` mencakup
-A→Anonymous→A, beberapa akun, rotasi auth, preferensi/draft, path ganda, host-only,
-partition/store lain, expiration, gagal mutasi/rollback, journal recovery, snapshot
-lama, double switch, adapter unsupported, dan penolakan Update saat Anonymous.
-Ini pengujian unit/integrasi dengan mock, bukan browser E2E atau bukti dukungan
-website produksi. Tidak ada lint script pada proyek.
-
-Untuk validasi browser manual gunakan website autentikasi lokal yang Anda kontrol,
-pasang dua indikator DOM sesuai verifier dan cookie/key sesuai adapter di atas,
-simpan akun A/B, lalu jalankan urutan pada test. Periksa DevTools bahwa theme/draft
-tetap ada, tidak ada request logout/revoke, cookie path dan partition cocok, serta
-snapshot Recovery bisa dipulihkan. Jangan gunakan sesi produksi untuk uji kegagalan.
+Pengujian New menggunakan mock Chrome API: A→New→Save B→A/B, deduplikasi snapshot
+identik, kegagalan persistensi/penghapusan, double New, dan scope store/partition.
+Pengujian tersebut tidak menggantikan validasi pada website autentikasi nyata.

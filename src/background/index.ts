@@ -1,6 +1,5 @@
+import { migrateStorage } from "../storage/migrations";
 import { validateExportFile, buildExportFile } from "../services/export-import.service";
-import { activateAnonymous, getAnonymousStatus, recoverSwitch } from "../services/session.service";
-import { saveAdapter } from "../services/auth-adapter.service";
 import type {
   ExtensionMessage,
   ExtensionResponse,
@@ -12,6 +11,8 @@ import type {
   ImportSessionsPayload,
 } from "../messaging/messages";
 import {
+  createNewSession,
+  getNewSessionStatus,
   captureSession,
   restoreSession,
   recaptureSession,
@@ -31,21 +32,16 @@ chrome.runtime.onMessage.addListener(
   ) => {
     (async () => {
       try {
+        await migrateStorage();
         switch (message.type) {
-          case "ACTIVATE_ANONYMOUS":
-          case "ANONYMOUS_STATUS":
-          case "RECOVER_SWITCH":
-          case "SAVE_ADAPTER": {
-            const { tabId, adapter } = message.payload as { tabId: number; adapter?: unknown };
-            if (message.type === "SAVE_ADAPTER") {
-              const tab = await chrome.tabs.get(tabId);
-              const url = new URL(tab.url ?? "");
-              if (!["http:", "https:"].includes(url.protocol)) throw new Error("Open a website first.");
-              await saveAdapter(url.hostname, adapter);
-            }
-            if (message.type === "RECOVER_SWITCH") await recoverSwitch(tabId);
-            const data = message.type === "ACTIVATE_ANONYMOUS" ? await activateAnonymous(tabId) : await getAnonymousStatus(tabId);
-            sendResponse({ success: true, data });
+          case "NEW_SESSION": {
+            const { label, tabId } = message.payload as CapturePayload;
+            sendResponse({ success: true, data: await createNewSession(label, tabId) });
+            break;
+          }
+          case "GET_NEW_SESSION_STATUS": {
+            const { tabId } = message.payload as { tabId: number };
+            sendResponse({ success: true, data: await getNewSessionStatus(tabId) });
             break;
           }
           case "CAPTURE_SESSION": {

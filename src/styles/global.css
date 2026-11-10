@@ -479,6 +479,11 @@
   background: transparent;
 }
 
-.anonymous-section { padding: 0 20px 10px; }
-.auth-status { font-size: 11px; margin: 6px 0 10px; color: var(--fg-muted); }
-.adapter-input { width: 100%; min-height: 150px; font-family: var(--font-mono); font-size: 11px; background: var(--input-bg); border: 1px solid var(--border); padding: 8px; margin-bottom: 8px; }
+.save-input { min-width: 0; }
+.new-session-status, .new-session-hint {
+  font-size: 11px;
+  line-height: 1.5;
+  margin-top: 8px;
+  color: var(--fg-muted);
+}
+.new-session-status { color: var(--fg); }

@@ -10,12 +10,12 @@ export interface Session {
   lastUsedAt: string | null;
   cookieCount: number;
   storeId?: string;
-  automatic?: boolean;
-  authStorage?: AuthStorage;
 }
 
-export interface AuthStorage {
+export interface NewSessionStatus {
+  sessionId: string;
+  savedLabel: string;
   origin: string;
-  local: Record<string, string | null>;
-  session: Record<string, string | null>;
+  storeId: string;
+  ready: boolean;
 }

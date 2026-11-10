@@ -128,7 +128,7 @@ export function SessionCard({
         ) : (
           <span className="session-label">{session.label}</span>
         )}
-        <span className="cookie-count">{session.automatic ? "Recovery · " : ""}{session.cookieCount} cookies</span>
+        <span className="cookie-count">{session.cookieCount} cookies</span>
       </div>
 
       {error && <div className="error-text" role="alert">{error}</div>}
@@ -148,7 +148,7 @@ export function SessionCard({
         <button
           className="btn btn-secondary btn-sm"
           onClick={handleRecapture}
-          disabled={busy !== null || session.automatic}
+          disabled={busy !== null}
         >
           {busy === "recapture" ? "Updating…" : "Update"}
         </button>

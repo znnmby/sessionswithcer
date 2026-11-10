@@ -2,7 +2,7 @@ import type {
   ExtensionMessage,
   ExtensionResponse,
 } from "./messages";
-import type { Session } from "../types/session";
+import type { Session, NewSessionStatus } from "../types/session";
 
 async function sendMessage<T = unknown>(
   message: ExtensionMessage,
@@ -74,8 +74,9 @@ export async function importSessions(
   });
 }
 
-export async function anonymousAction(type: "ACTIVATE_ANONYMOUS" | "ANONYMOUS_STATUS" | "RECOVER_SWITCH" | "SAVE_ADAPTER", tabId: number, adapter?: unknown) {
-  const response = await sendMessage<import("../types/auth").AnonymousStatus>({ type, payload: { tabId, adapter } });
-  if (!response.success) throw new Error(response.error ?? "Session operation failed.");
-  return response.data;
+export function startNewSession(label: string, tabId: number): Promise<ExtensionResponse<NewSessionStatus>> {
+  return sendMessage({ type: "NEW_SESSION", payload: { label, tabId } });
+}
+export function getNewSessionStatus(tabId: number): Promise<ExtensionResponse<NewSessionStatus | null>> {
+  return sendMessage({ type: "GET_NEW_SESSION_STATUS", payload: { tabId } });
 }

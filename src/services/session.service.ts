@@ -1,9 +1,7 @@
-import type { Session } from "../types/session";
-import { getCookiesForDomain, removeCookies, setCookies } from "./cookie.service";
-import { saveSession, getSession, updateSession } from "../storage/session.storage";
+import type { Session, NewSessionStatus } from "../types/session";
+import { getCookiesForDomain, removeCookies, setCookies, cookieIdentity } from "./cookie.service";
+import { saveSession, getSession, updateSession, getAllSessions } from "../storage/session.storage";
 import { generateId } from "../utils/id";
-import { getAdapter, isAuthCookie, authStorage, verifyAuth } from "./auth-adapter.service";
-import type { AuthAdapter, AnonymousStatus } from "../types/auth";
 
 let busy = false;
 async function exclusive<T>(action: () => Promise<T>): Promise<T> {
@@ -19,163 +17,118 @@ async function context(tabId: number) {
   if (!store) throw new Error("Cannot determine this tab's cookie store.");
   const partitionKey = chrome.cookies.getPartitionKey
     ? (await chrome.cookies.getPartitionKey({ tabId, frameId: 0 })).partitionKey : undefined;
-  return { tabId, url, domain: url.hostname, storeId: store.id, partitionKey };
+  return { url, domain: url.hostname, storeId: store.id, partitionKey };
 }
 type Context = Awaited<ReturnType<typeof context>>;
-const stateKey = (c: Context) => `active:${c.storeId}:${c.url.origin}:${c.tabId}`;
-async function snapshot(c: Context, label: string, adapter: AuthAdapter | null): Promise<Session> {
+async function snapshot(c: Context, label: string): Promise<Session> {
   const cookies = await getCookiesForDomain(c.domain, c.storeId, c.partitionKey);
   return { id: generateId(), label, domain: c.domain, url: c.url.href, storeId: c.storeId,
-    cookies, cookieCount: cookies.length, savedAt: new Date().toISOString(), lastUsedAt: null,
-    ...(adapter ? { authStorage: await authStorage(c.tabId, c.url.origin, adapter) } : {}) };
+    cookies, cookieCount: cookies.length, savedAt: new Date().toISOString(), lastUsedAt: null };
 }
-
-async function protectAnonymousSnapshot(c: Context, session: Session, adapter: AuthAdapter | null) {
-  if (!adapter) return;
-  const hasAuth = session.cookies.some(x => isAuthCookie(x, adapter)) ||
-    Object.values(session.authStorage?.local ?? {}).some(v => v !== null) ||
-    Object.values(session.authStorage?.session ?? {}).some(v => v !== null);
-  const key = stateKey(c);
-  const active = (await chrome.storage.local.get(key))[key] as AnonymousStatus | undefined;
-  if (!hasAuth || active?.mode === "anonymous") {
-    // A verifier can recognize a manual login after Anonymous was selected.
-    if (active?.mode === "anonymous" && adapter.verification) {
-      try { await verifyAuth(c.tabId, c.url.origin, adapter, false); return; } catch {}
-    }
-    throw new Error("Anonymous state cannot be captured over an account snapshot. Switch to an account or sign in first.");
-  }
-}
-
 export async function captureSession(label: string, tabId: number): Promise<Session> {
   return exclusive(async () => {
-    const c = await context(tabId);
-    const session = await snapshot(c, label, await getAdapter(c.domain));
-    await protectAnonymousSnapshot(c, session, await getAdapter(c.domain));
+    const session = await snapshot(await context(tabId), label);
     await saveSession(session);
+    await chrome.storage.local.remove(newSessionKey(tabId));
     return session;
   });
 }
 export async function recaptureSession(sessionId: string, tabId: number): Promise<Session> {
   return exclusive(async () => {
     const c = await context(tabId), saved = await getSession(sessionId);
-    if (!saved || saved.domain !== c.domain) throw new Error("Select a session matching the current website.");
-    if (saved.automatic) throw new Error("Recovery snapshots cannot be overwritten. Save a new session instead.");
-    const fresh = await snapshot(c, saved.label, await getAdapter(c.domain));
-    await protectAnonymousSnapshot(c, fresh, await getAdapter(c.domain));
-    const updates = { ...fresh, id: saved.id, lastUsedAt: saved.lastUsedAt };
-    await updateSession(sessionId, updates);
-    return updates;
+    if (!saved || saved.domain !== c.domain || new URL(saved.url).origin !== c.url.origin)
+      throw new Error("Select a session matching the current website and origin.");
+    if (saved.storeId && saved.storeId !== c.storeId) throw new Error("Saved session belongs to another cookie store.");
+    const fresh = await snapshot(c, saved.label);
+    const updated = { ...fresh, id: saved.id, lastUsedAt: saved.lastUsedAt };
+    await updateSession(sessionId, updated);
+    return updated;
   });
 }
-
-function reloadAndWait(tabId: number): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const finish = (error?: Error) => {
-      clearTimeout(timer); chrome.tabs.onUpdated.removeListener(listener);
-      error ? reject(error) : resolve();
-    };
-    const listener = (id: number, change: chrome.tabs.OnUpdatedInfo) => {
-      if (id === tabId && change.status === "complete") finish();
-    };
-    const timer = setTimeout(() => finish(new Error("Reload timed out.")), 15000);
-    chrome.tabs.onUpdated.addListener(listener);
-    chrome.tabs.reload(tabId).catch(() => finish(new Error("Cannot reload target tab.")));
-  });
-}
-interface Journal { before: Session; adapter: AuthAdapter | null; tabId: number; key: string }
-async function apply(c: Context, target: Session | null, adapter: AuthAdapter | null) {
-  const current = await context(c.tabId);
-  if (current.url.origin !== c.url.origin || current.storeId !== c.storeId)
-    throw new Error("Website changed during switching.");
-  const cookies = await getCookiesForDomain(c.domain, c.storeId, c.partitionKey);
-  await removeCookies(adapter ? cookies.filter(x => isAuthCookie(x, adapter)) : cookies);
-  await setCookies((target?.cookies ?? []).filter(x => !adapter || isAuthCookie(x, adapter)), c.storeId);
-  if (adapter) await authStorage(c.tabId, c.url.origin, adapter, target?.authStorage ?? {
-    origin: c.url.origin, local: {}, session: {},
-  });
-}
-async function rollback(c: Context, journal: Journal) {
-  await apply(c, journal.before, journal.adapter);
-  await reloadAndWait(c.tabId);
-  await chrome.storage.local.remove(journal.key);
-  await chrome.storage.local.remove("switchJournal");
-}
-export async function recoverSwitch(tabId: number): Promise<void> {
+export async function restoreSession(sessionId: string, tabId: number): Promise<void> {
   return exclusive(async () => {
-    const { switchJournal: journal } = await chrome.storage.local.get("switchJournal") as { switchJournal?: Journal };
-    if (!journal) throw new Error("No interrupted switch needs recovery.");
-    const c = await context(tabId);
-    if (c.url.origin !== new URL(journal.before.url).origin || c.storeId !== journal.before.storeId)
-      throw new Error("Return to the original website and cookie store to recover.");
-    await rollback(c, journal);
-  });
-}
-export async function getAnonymousStatus(tabId: number): Promise<AnonymousStatus> {
-  const c = await context(tabId), adapter = await getAdapter(c.domain);
-  const key = stateKey(c);
-  const data = await chrome.storage.local.get([key, "switchJournal"]);
-  if (data.switchJournal) return { adapter, mode: "unknown", verification: "Interrupted switch: use Recover on the original website/store." };
-  const active = data[key] as AnonymousStatus | undefined;
-  if (!active) return { adapter, mode: "unknown", verification: "Current account has not been tracked." };
-  try {
-    const verification = adapter ? await verifyAuth(tabId, c.url.origin, adapter, active.mode === "anonymous") : "Unverified legacy cookie session.";
-    return { ...active, adapter, verification };
-  } catch {
-    return { adapter, mode: "unknown", verification: "Authentication changed or could not be verified. Snapshot remains available." };
-  }
-}
-async function switchTo(tabId: number, sessionId?: string): Promise<AnonymousStatus> {
-  return exclusive(async () => {
-    const c = await context(tabId), adapter = await getAdapter(c.domain);
-    if ((await chrome.storage.local.get("switchJournal")).switchJournal)
-      throw new Error("An interrupted switch needs recovery in its original tab first.");
-    if (adapter && !c.partitionKey) throw new Error("Adapter switching requires Chrome 132+ partition-key support.");
-    if (!sessionId && !adapter) throw new Error("Anonymous is unsupported until an authentication adapter is configured for this website.");
-    const target = sessionId ? await getSession(sessionId) : null;
-    if (sessionId && (!target || target.domain !== c.domain || new URL(target.url).origin !== c.url.origin))
+    const c = await context(tabId), target = await getSession(sessionId);
+    if (!target || target.domain !== c.domain || new URL(target.url).origin !== c.url.origin)
       throw new Error("Open the saved session's website and origin first.");
-    if (target?.authStorage && target.authStorage.origin !== c.url.origin) throw new Error("Authentication storage origin mismatch.");
-    if (target?.storeId && target.storeId !== c.storeId) throw new Error("Saved session belongs to another cookie store.");
-    for (const cookie of target?.cookies ?? []) {
+    if (target.storeId && target.storeId !== c.storeId) throw new Error("Saved session belongs to another cookie store.");
+    for (const cookie of target.cookies) {
       const host = cookie.domain.replace(/^\./, "");
       if (!(host === c.domain || (!cookie.hostOnly && c.domain.endsWith(`.${host}`))))
         throw new Error("Saved cookie is outside the target website scope.");
       if (cookie.storeId && cookie.storeId !== c.storeId) throw new Error("Cookie store mismatch.");
-      if ((!adapter || isAuthCookie(cookie, adapter)) && cookie.expirationDate !== undefined && cookie.expirationDate <= Date.now()/1000)
-        throw new Error("Saved authentication cookie has expired. Choose a newer snapshot or sign in again.");
+      if (cookie.expirationDate !== undefined && cookie.expirationDate <= Date.now()/1000)
+        throw new Error("Saved cookie has expired. Choose a newer session or sign in again.");
       if (cookie.partitionKey && (cookie.partitionKey.topLevelSite !== c.partitionKey?.topLevelSite ||
         (cookie.partitionKey.hasCrossSiteAncestor ?? false) !== (c.partitionKey?.hasCrossSiteAncestor ?? false)))
         throw new Error("Partitioned cookie context differs or is unsupported by this browser.");
     }
-    if (adapter && target && (adapter.localKeys.length || adapter.sessionKeys.length) && !target.authStorage)
-      throw new Error("Legacy snapshot has no authentication storage. Update it while signed in before switching.");
-    const before = await snapshot(c, `Recovery — ${new Date().toLocaleString()}`, adapter);
-    let hasAuth = adapter ? before.cookies.some(x => isAuthCookie(x, adapter)) ||
-      Object.values(before.authStorage!.local).some(x => x !== null) || Object.values(before.authStorage!.session).some(x => x !== null)
-      : before.cookies.length > 0;
-    if (adapter?.verification) {
-      try { await verifyAuth(tabId, c.url.origin, adapter, true); hasAuth = false; } catch {}
-    }
-    // Append immutable recovery snapshots; never write captured anonymous state over an account.
-    if (hasAuth) await saveSession({ ...before, automatic: true });
-    const journal: Journal = { before, adapter, tabId, key: stateKey(c) };
-    await chrome.storage.local.set({ switchJournal: journal });
+    const previous = await getCookiesForDomain(c.domain, c.storeId, c.partitionKey);
+    await replaceCookies(c, tabId, previous, target.cookies, async () => {
+      await updateSession(sessionId, { lastUsedAt: new Date().toISOString() });
+      await chrome.storage.local.remove(newSessionKey(tabId));
+    });
+  });
+}
+
+// Shared by Switch and New. Failed changes restore the previous cookie state.
+async function replaceCookies(c: Context, tabId: number, previous: Session["cookies"],
+  target: Session["cookies"], onApplied: () => Promise<void>) {
+  const current = await context(tabId);
+  if (current.url.origin !== c.url.origin || current.storeId !== c.storeId)
+    throw new Error("Website changed before cookies could be switched.");
+  try {
+    await removeCookies(previous);
+    await setCookies(target, c.storeId);
+    await chrome.tabs.reload(tabId);
+    await onApplied();
+  } catch {
     try {
-      await apply(c, target, adapter);
-      await reloadAndWait(tabId);
-      const verification = adapter ? await verifyAuth(tabId, c.url.origin, adapter, !target) : "Unverified: legacy cookie-only switching.";
-      const status: AnonymousStatus = { adapter, mode: target ? "account" : "anonymous", verification,
-        ...(hasAuth ? { recoveryId: before.id } : {}) };
-      if (target) await updateSession(target.id, { lastUsedAt: new Date().toISOString() });
-      await chrome.storage.local.set({ [journal.key]: status });
-      await chrome.storage.local.remove("switchJournal");
+      await removeCookies(await getCookiesForDomain(c.domain, c.storeId, c.partitionKey));
+      await setCookies(previous, c.storeId);
+      const currentTab = await context(tabId);
+      if (currentTab.url.origin === c.url.origin) await chrome.tabs.reload(tabId);
+    } catch { throw new Error("Switch failed; previous cookies could not be fully restored. Choose the saved session to retry."); }
+    throw new Error("Switch failed. Previous cookies restored.");
+  }
+}
+const newSessionKey = (tabId: number) => `newSession:${tabId}`;
+export async function getNewSessionStatus(tabId: number): Promise<NewSessionStatus | null> {
+  const c = await context(tabId), key = newSessionKey(tabId);
+  const value = (await chrome.storage.local.get(key))[key] as NewSessionStatus | undefined;
+  return value?.origin === c.url.origin && value.storeId === c.storeId ? value : null;
+}
+
+export async function createNewSession(label: string, tabId: number): Promise<NewSessionStatus> {
+  return exclusive(async () => {
+    if (typeof label !== "string") throw new Error("Invalid session label.");
+    const c = await context(tabId);
+    const pending = await getNewSessionStatus(tabId);
+    if (pending) throw new Error("New session already started. Sign in and Save, or Switch to a saved account first.");
+    const previous = await snapshot(c, label.trim() || `${c.domain} — ${new Date().toLocaleString()}`);
+    if (!previous.cookies.length) throw new Error("No site cookies to preserve. Sign in to the new account, then use Save.");
+    // Reuse an identical saved account only when no new label was requested.
+    const signature = (cookies: Session["cookies"]) => JSON.stringify(cookies.map(cookie =>
+      JSON.stringify([cookieIdentity(cookie), cookie.value, cookie.expirationDate,
+        cookie.hostOnly, cookie.secure, cookie.httpOnly, cookie.sameSite])).sort());
+    const existing = !label.trim() ? (await getAllSessions()).find(session =>
+      session.domain === c.domain && new URL(session.url).origin === c.url.origin &&
+      (!session.storeId || session.storeId === c.storeId) && signature(session.cookies) === signature(previous.cookies)) : undefined;
+    const saved = existing ?? previous;
+    // Never clear browser cookies until the current account snapshot is persisted.
+    if (!existing) await saveSession(saved);
+    const key = newSessionKey(tabId);
+    const status: NewSessionStatus = { sessionId: saved.id, savedLabel: saved.label,
+      origin: c.url.origin, storeId: c.storeId, ready: false };
+    await chrome.storage.local.set({ [key]: status });
+    try {
+      await replaceCookies(c, tabId, previous.cookies, [], async () => {
+        status.ready = true;
+        await chrome.storage.local.set({ [key]: status });
+      });
       return status;
-    } catch {
-      try { await rollback(c, journal); }
-      catch { throw new Error("Switch failed and recovery is incomplete. Recovery snapshot retained; return to the original website/store and use Recover."); }
-      throw new Error("Switch or authentication verification failed (possibly expired/revoked session). Previous local state restored; recovery snapshot retained.");
+    } catch (error) {
+      await chrome.storage.local.remove(key);
+      throw error;
     }
   });
 }
-export const activateAnonymous = (tabId: number) => switchTo(tabId);
-export const restoreSession = (sessionId: string, tabId: number) => switchTo(tabId, sessionId);
