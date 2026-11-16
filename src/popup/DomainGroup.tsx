@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { Session } from "../types/session";
 import { SessionCard } from "./SessionCard";
 
@@ -18,21 +18,24 @@ export function DomainGroup({
   onRequestConfirm,
 }: Props) {
   const [collapsed, setCollapsed] = useState(false);
+  const contentId = useId();
 
   return (
     <div className="domain-group">
       <button
         className="domain-header"
         onClick={() => setCollapsed(!collapsed)}
+        aria-expanded={!collapsed}
+        aria-controls={contentId}
       >
-        <span className="domain-chevron">{collapsed ? "▸" : "▾"}</span>
-        <span className="domain-name">{domain}</span>
+        <span className="domain-chevron" aria-hidden="true" />
+        <span className="domain-name" title={domain}>{domain}</span>
         <span className="domain-count">
           {sessions.length} session{sessions.length !== 1 ? "s" : ""}
         </span>
       </button>
 
-      {!collapsed && (
+      <div className="domain-collapse" data-collapsed={collapsed} inert={collapsed} id={contentId}>
         <div className="domain-sessions">
           {sessions.map((session) => (
             <SessionCard
@@ -44,7 +47,7 @@ export function DomainGroup({
             />
           ))}
         </div>
-      )}
+      </div>
     </div>
   );
 }

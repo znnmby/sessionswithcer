@@ -1,26 +1,27 @@
 import { useState } from "react";
+import { Dialog } from "./Dialog";
 
 interface Props {
+  open: boolean;
   onConfirm: () => void;
   onCancel: () => void;
   message: string;
 }
 
-export function ConfirmDialog({ onConfirm, onCancel, message }: Props) {
+export function ConfirmDialog({ open, onConfirm, onCancel, message }: Props) {
   return (
-    <div className="confirm-overlay" onClick={onCancel}>
-      <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
-        <p className="confirm-message">{message}</p>
-        <div className="confirm-actions">
-          <button className="btn btn-cancel" onClick={onCancel}>
-            Cancel
-          </button>
-          <button className="btn btn-danger" onClick={onConfirm}>
-            Confirm
-          </button>
-        </div>
+    <Dialog open={open} title="Delete this session?" onClose={onCancel}>
+      <p className="dialog-description">{message}</p>
+      <p className="dialog-note">This removes the saved copy, not your current website login.</p>
+      <div className="dialog-actions">
+        <button className="btn btn-secondary" onClick={onCancel} autoFocus>
+          Cancel
+        </button>
+        <button className="btn btn-danger" onClick={onConfirm}>
+          Delete session
+        </button>
       </div>
-    </div>
+    </Dialog>
   );
 }
 
@@ -39,12 +40,10 @@ export function useConfirm() {
   function confirm() {
     pending?.();
     setPending(null);
-    setMessage("");
   }
 
   function cancel() {
     setPending(null);
-    setMessage("");
   }
 
   return {

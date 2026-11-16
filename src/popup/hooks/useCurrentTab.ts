@@ -3,11 +3,13 @@ import { useState, useEffect } from "react";
 export function useCurrentTab() {
   const [tab, setTab] = useState<chrome.tabs.Tab | null>(null);
   const [domain, setDomain] = useState("");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       const activeTab = tabs[0] ?? null;
       setTab(activeTab);
+      setLoading(false);
       if (activeTab?.url) {
         try {
           const url = new URL(activeTab.url);
@@ -19,5 +21,5 @@ export function useCurrentTab() {
     });
   }, []);
 
-  return { tab, domain };
+  return { tab, domain, loading };
 }

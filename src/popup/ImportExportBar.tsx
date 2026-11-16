@@ -11,7 +11,7 @@ import type { ValidationResult } from "../services/export-import.service";
 
 interface Props {
   sessions: Session[];
-  onImportReady: (sessions: Session[], errors: string[]) => void;
+  onImportReady: (sessions: Session[]) => void;
 }
 
 export function ImportExportBar({ sessions, onImportReady }: Props) {
@@ -46,7 +46,7 @@ export function ImportExportBar({ sessions, onImportReady }: Props) {
         return;
       }
 
-      onImportReady(result.data.sessions, []);
+      onImportReady(result.data.sessions);
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Failed to read file");
     } finally {
@@ -59,28 +59,34 @@ export function ImportExportBar({ sessions, onImportReady }: Props) {
   return (
     <div className="import-export-bar">
       <button
-        className="btn btn-dark"
+        className="btn btn-ghost btn-sm"
         onClick={handleExportAll}
         disabled={sessions.length === 0}
         title="Export all sessions to JSON"
       >
-        EXPORT ALL ↑
+        Export all
       </button>
 
-      <label className="btn btn-dark import-label">
-        {importing ? "READING…" : "IMPORT ↓"}
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".json,application/json"
-          onChange={handleFileSelected}
-          disabled={importing}
-          hidden
-        />
-      </label>
+      <button
+        className="btn btn-secondary btn-sm"
+        onClick={() => fileRef.current?.click()}
+        disabled={importing}
+        aria-busy={importing}
+      >
+        Import
+      </button>
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".json,application/json"
+        onChange={handleFileSelected}
+        disabled={importing}
+        hidden
+        aria-label="Import sessions file"
+      />
 
       {importError && (
-        <div className="import-error">{importError}</div>
+        <div className="import-error error-text" role="alert">{importError}</div>
       )}
     </div>
   );

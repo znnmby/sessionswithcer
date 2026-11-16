@@ -14,6 +14,23 @@ Dibangun dengan React 19, TypeScript, Vite 8, CRXJS, dan Tailwind CSS 4.
 - Kelompokkan sesi per domain, dengan grup yang bisa diciutkan.
 - Export satu sesi atau semua sesi ke JSON, serta import kembali dengan validasi skema.
 
+### Antarmuka popup
+
+- Tema terang/gelap mengikuti sistem, dengan token warna, radius, dan motion
+  bersama di `src/styles/global.css`.
+- Popup memakai lebar 560 px; tinggi konten mengikuti ruang browser hingga 600 px.
+  Daftar sesi dapat digulir tanpa menggeser header dan formulir pada tampilan normal.
+- Hover/focus/pressed/disabled dan indikator proses memakai gaya yang sama.
+  Label tombol tidak berubah lebar saat sibuk; daftar yang sudah dimuat tetap
+  tampil saat refresh, termasuk status grup yang diciutkan.
+- Rename memakai **Save** atau **Enter** untuk menyimpan, **Cancel** atau **Escape**
+  untuk membatalkan. Berpindah fokus tidak otomatis menyimpan nama.
+- Dialog impor dan hapus berbagi komponen native `<dialog>`: fokus keyboard
+  tetap di dialog dan kembali ke pemicunya saat ditutup. Escape/klik luar
+  diblokir selama impor berlangsung.
+- Transisi memakai durasi 120/180/240 ms dan easing yang sama; pengaturan sistem
+  `prefers-reduced-motion` menonaktifkan animasi dan transisi.
+
 ## Persyaratan
 
 - **Node.js 22.12 atau lebih baru** (disarankan 22 LTS atau 24/26). Vite 8 membutuhkan
@@ -192,6 +209,16 @@ Perbarui Node.js ke 22.12+ lalu jalankan `npm install` ulang.
 
 **Popup menampilkan "Navigate to a website…".**
 Tab aktif bukan halaman `http(s)`. Buka situs biasa lalu klik ikon lagi.
+
+**Kolom label atau Rename tidak bisa diketik di popup Yab.**
+Yab 0.47.10 memiliki gejala yang cocok dengan bug input popup ekstensi yang
+[diperbaiki di Yab 0.47.14 Nightly](https://yetanotherbrowser.com/changelog/nightly/202611120935).
+Gunakan versi Yab yang memuat perbaikan tersebut (0.47.14 atau lebih baru), lalu
+restart browser dan coba ketik di kolom label serta Rename. Nightly adalah kanal
+prarilis; periksa versi yang ditawarkan sebelum memperbarui. Menginstal ulang
+Stable 0.47.10 atau membangun ulang ekstensi tidak memasang perbaikan browser ini.
+Pengujian popup di Chromium berhasil menerima ketikan; hasil setelah pembaruan
+Yab masih perlu diverifikasi pada browser tersebut.
 
 **Perubahan kode tidak terlihat.**
 Jalankan `npm run build` (atau pastikan `npm run dev` masih hidup), lalu klik

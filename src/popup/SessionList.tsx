@@ -19,7 +19,9 @@ export function SessionList({
   if (domains.length === 0) {
     return (
       <div className="empty-state">
-        No saved sessions yet. Save your first session above.
+        <div className="empty-mark" aria-hidden="true">SS</div>
+        <h3>A place for every account</h3>
+        <p>Save your first session above, or import an existing collection.</p>
       </div>
     );
   }

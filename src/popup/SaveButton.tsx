@@ -14,20 +14,25 @@ export function SaveButton({ tabId, domain, onSaved, revision }: Props) {
   const [busy, setBusy] = useState<"save" | "new" | null>(null);
   const [pending, setPending] = useState<NewSessionStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
+    let active = true;
     getNewSessionStatus(tabId).then(response => {
-      if (response.success) setPending(response.data ?? null);
-    }).catch(() => setError("Cannot read New Session status."));
+      if (active && response.success) setPending(response.data ?? null);
+    }).catch(() => {
+      if (active) setError("Cannot read New Session status.");
+    });
+    return () => { active = false; };
   }, [tabId, revision]);
 
   async function handleSave() {
     if (busy || !label.trim()) return;
-    setBusy("save"); setError(null);
+    setBusy("save"); setError(null); setNotice("");
     try {
       const response = await captureCurrentSession(label.trim(), tabId);
       if (!response.success) throw new Error(response.error ?? "Failed to save");
-      setLabel(""); setPending(null); onSaved();
+      setLabel(""); setPending(null); setNotice("Session saved."); onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally { setBusy(null); }
@@ -35,7 +40,7 @@ export function SaveButton({ tabId, domain, onSaved, revision }: Props) {
 
   async function handleNew() {
     if (busy || pending) return;
-    setBusy("new"); setError(null);
+    setBusy("new"); setError(null); setNotice("");
     try {
       const response = await startNewSession(label.trim(), tabId);
       if (!response.success || !response.data) throw new Error(response.error ?? "Failed to start new session");
@@ -48,29 +53,52 @@ export function SaveButton({ tabId, domain, onSaved, revision }: Props) {
   }
 
   return (
-    <div className="save-section">
-      <div className="save-domain">CURRENT : <strong>{domain.toUpperCase()}</strong></div>
-      <div className="save-row">
-        <input type="text" className="save-input"
-          aria-label={pending ? "New account label" : "Session label"}
-          placeholder={pending ? "Login akun baru, lalu isi label" : 'Label (e.g "Work Account")'}
-          value={label} onChange={e => setLabel(e.target.value)}
-          onKeyDown={e => { if (e.key === "Enter") handleSave(); }} disabled={busy !== null} />
-        <button className="btn btn-save" onClick={handleSave} disabled={busy !== null || !label.trim()}>
-          {busy === "save" ? "SAVING…" : "SAVE"}
-        </button>
-        <button className="btn btn-save" onClick={handleNew} disabled={busy !== null || pending !== null}
-          title="Simpan sesi aktif, kosongkan cookie situs tanpa logout, lalu login akun baru. Label boleh kosong untuk memakai nama otomatis.">
-          {busy === "new" ? "STARTING…" : "NEW"}
-        </button>
+    <section className="save-section" aria-label="Current website">
+      <div className="save-domain">
+        <span className="status-dot" aria-hidden="true" />
+        <span className="eyebrow">Current website</span>
+        <strong title={domain}>{domain}</strong>
       </div>
+      <form onSubmit={(event) => { event.preventDefault(); void handleSave(); }}>
+        <label className="input-label" htmlFor="session-label">
+          {pending ? "New account label" : "Session label"}
+        </label>
+        <div className="save-row">
+          <input
+            id="session-label"
+            type="text"
+            className="save-input"
+            placeholder="e.g. Work account"
+            value={label}
+            onChange={event => { setLabel(event.target.value); setNotice(""); }}
+            onKeyDown={event => {
+              if (event.key === "Enter" && event.nativeEvent.isComposing) event.preventDefault();
+            }}
+            disabled={busy !== null}
+            autoComplete="off"
+          />
+          <button className="btn btn-primary" type="submit"
+            disabled={busy !== null || !label.trim()} aria-busy={busy === "save"}>
+            Save session
+          </button>
+          <button className="btn btn-secondary" type="button" onClick={handleNew}
+            disabled={busy !== null || pending !== null} aria-busy={busy === "new"}
+            title="Save the current cookies, clear them, then sign in to another account.">
+            New
+          </button>
+        </div>
+      </form>
       {pending && <p className="new-session-status" role="status">
-        Sesi “{pending.savedLabel}” tersimpan. {pending.ready
-          ? "Cookie situs sudah dikosongkan. Login akun baru, lalu isi label dan Save."
-          : "Proses New belum selesai. Pilih Switch pada sesi tersimpan untuk kembali."}
+        <strong>“{pending.savedLabel}” is saved.</strong>{" "}{pending.ready
+          ? "Sign in to the new account, then label and save it here."
+          : "New session is incomplete. Switch to the saved session to return."}
       </p>}
-      <p className="new-session-hint">New memakai cookie swapping: cookie situs, termasuk preferensi, ikut dikosongkan dan tersimpan pada sesi sebelumnya. Tab situs yang sama berbagi sesi. Login berbasis storage atau SSO mungkin tetap aktif.</p>
+      <details className="session-help">
+        <summary>How does New work?</summary>
+        <p>New saves and clears this site's cookies, including preferences. Tabs on the same site share a session. Storage-based or SSO logins may stay active.</p>
+      </details>
+      {notice && <p className="success-text" role="status">{notice}</p>}
       {error && <div className="error-text" role="alert">{error}</div>}
-    </div>
+    </section>
   );
 }

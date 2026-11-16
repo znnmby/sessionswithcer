@@ -10,7 +10,7 @@
     "name": "export-import.service"
   },
   "index.html": {
-    "file": "assets/index.html-BwxdsWYV.js",
+    "file": "assets/index.html-CUsy7100.js",
     "name": "index.html",
     "src": "index.html",
     "isEntry": true,
@@ -18,7 +18,7 @@
       "_export-import.service-CUMBEb2q.js"
     ],
     "css": [
-      "assets/index-BeNRBVip.css"
+      "assets/index-BiK6-dHX.css"
     ]
   },
   "src/background/index.ts": {

@@ -1,20 +1,27 @@
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import type { Session } from "../types/session";
 import { importSessions } from "../messaging/client";
+import { Dialog } from "./Dialog";
 
 interface Props {
+  open: boolean;
   sessions: Session[];
   onClose: () => void;
   onImported: () => void;
 }
 
-export function ImportPreview({ sessions, onClose, onImported }: Props) {
+export function ImportPreview({ open, sessions, onClose, onImported }: Props) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{
     imported: number;
     skipped: number;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useLayoutEffect(() => {
+    setResult(null);
+    setError(null);
+  }, [sessions]);
 
   // Group by domain for display
   const byDomain: Record<string, Session[]> = {};
@@ -23,6 +30,7 @@ export function ImportPreview({ sessions, onClose, onImported }: Props) {
   }
 
   async function handleConfirm() {
+    if (busy) return;
     setBusy(true);
     setError(null);
     try {
@@ -41,31 +49,24 @@ export function ImportPreview({ sessions, onClose, onImported }: Props) {
   }
 
   return (
-    <div className="confirm-overlay" onClick={onClose}>
-      <div
-        className="import-preview-dialog"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Dialog open={open} title={result ? "Import complete" : "Import sessions"} busy={busy} onClose={onClose}>
         {result ? (
           <>
-            <h3 className="import-preview-title">Import Complete</h3>
-            <p className="import-result-text">
-              ✓ {result.imported} session{result.imported !== 1 ? "s" : ""}{" "}
-              imported
+            <p className="success-text" role="status">
+              {result.imported} session{result.imported !== 1 ? "s" : ""} imported
               {result.skipped > 0 && (
                 <>, {result.skipped} skipped (duplicate ID)</>
               )}
             </p>
-            <div className="confirm-actions">
-              <button className="btn btn-primary btn-sm" onClick={onClose}>
+            <div className="dialog-actions">
+              <button className="btn btn-primary" onClick={onClose} autoFocus>
                 Done
               </button>
             </div>
           </>
         ) : (
           <>
-            <h3 className="import-preview-title">Import Sessions</h3>
-            <p className="import-preview-subtitle">
+            <p className="dialog-description">
               {sessions.length} session{sessions.length !== 1 ? "s" : ""} found
               in file:
             </p>
@@ -88,32 +89,33 @@ export function ImportPreview({ sessions, onClose, onImported }: Props) {
                 ))}
             </div>
 
-            <div className="import-preview-warning">
-              ⚠ Imported sessions may be expired. A successful import does not
+            <div className="dialog-note">
+              Imported sessions may be expired. A successful import does not
               guarantee the website will accept the session.
             </div>
 
-            {error && <div className="error-text">{error}</div>}
+            {error && <div className="error-text" role="alert">{error}</div>}
 
-            <div className="confirm-actions">
+            <div className="dialog-actions">
               <button
-                className="btn btn-cancel btn-sm"
+                className="btn btn-secondary"
                 onClick={onClose}
                 disabled={busy}
+                autoFocus
               >
                 Cancel
               </button>
               <button
-                className="btn btn-primary btn-sm"
+                className="btn btn-primary"
                 onClick={handleConfirm}
                 disabled={busy}
+                aria-busy={busy}
               >
-                {busy ? "Importing…" : "Import"}
+                Import sessions
               </button>
             </div>
           </>
         )}
-      </div>
-    </div>
+    </Dialog>
   );
 }
